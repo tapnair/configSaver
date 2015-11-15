@@ -15,6 +15,8 @@ If you select the check box you can create a new state based on the suppresion s
 
 It stores the saved suppression information in a folder called configSaver in your user directory.  
 
+Alternatively you can select "Unsuppress All" checkbox and it will simply unsuppress all features in the timeline.  
+
 ## Limitations
   * Since the config information is stored locally it will only be available on the computer it was created.  Looking to add some kind of cloud support in the future.
   * If you have two models of the same name they are not distinguished. Potentially will add project directory to file names.
