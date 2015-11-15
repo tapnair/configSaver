@@ -67,7 +67,7 @@ def destroyObject(uiObj, tobeDeleteObj):
         else:
             uiObj.messageBox('tobeDeleteObj is not a valid object')
                     
-def writeXML(tree, newState, fileName):
+def writeXML(tree, newState, fileName, dims):
     app = adsk.core.Application.get()
     design = adsk.fusion.Design.cast(app.activeProduct)
     # ui = app.userInterface
@@ -95,6 +95,15 @@ def writeXML(tree, newState, fileName):
                     # ui.messageBox(str(feature.name) + " Is Unsuppressed")
                     SubElement( state, 'feature', component=comp.name, name=feature.name, suppress = 'unSuppressed')
     
+    if dims:
+        # Get All parameters in design
+        allParams = design.allParameters
+        for param in allParams:
+    
+            # Record feature suppression state
+            if param is not None:               
+                SubElement( state, 'parameter', value=str(param.value), name=param.name)
+
     tree.write(fileName)
 
 def openXML(tree, state):
@@ -123,7 +132,17 @@ def openXML(tree, state):
                     else:
                         # ui.messageBox(str(feature.name) + " Is Unsuppressed")
                         feature.timelineObject.isSuppressed = False
-    
+
+    # Get All parameters in design
+    allParams = design.allParameters
+    for param in allParams:
+
+        # Apply Saved dimension info
+        if param is not None:               
+            test = root.find("state[@name='%s']/parameter[@name='%s']" % (state, feature.name))
+            if test is not None:
+                param.value = float(test.get('value'))
+
 def getFileName():
     try:
         app = adsk.core.Application.get()
@@ -183,13 +202,17 @@ def run(context):
                         inputs.itemById('currentState').isVisible = False
                         inputs.itemById('newName').isVisible = False
                         inputs.itemById('save').isVisible = False
+                        inputs.itemById('dims').isVisible = False
                     
                     elif inputs.itemById('save').value:
                         inputs.itemById('currentState').isVisible = False
                         inputs.itemById('newName').isEnabled = True
+                        inputs.itemById('dims').isEnabled = True
                     else:
                         inputs.itemById('currentState').isVisible = True
                         inputs.itemById('newName').isVisible = True
+                        inputs.itemById('dims').isVisible = True
+                        inputs.itemById('dims').isEnabled = False
                         inputs.itemById('newName').isEnabled = False
                         inputs.itemById('save').isVisible = True
 
@@ -255,6 +278,7 @@ def run(context):
                         
                     inputs.addBoolValueInput('save', 'Save current suppression condition?', True)
                     inputs.addStringValueInput('newName', 'New Config Name:', 'New Config')        
+                    inputs.addBoolValueInput('dims', 'Save DImension Information also?', True)
                     inputs.addBoolValueInput('all', 'Unsuppress all features?', True)
                     inputs.itemById('newName').isEnabled = False
                     inputs.itemById('newName').isVisible = False
@@ -278,7 +302,7 @@ def run(context):
                     if inputs.itemById('all').value:
                         unsuppressAll()
                     elif inputs.itemById('save').value:
-                        writeXML(tree, inputs.itemById('newName').value, fileName)
+                        writeXML(tree, inputs.itemById('newName').value, fileName, inputs.itemById('dims').value)
                     else:
                         openXML(tree, state)  
                     
