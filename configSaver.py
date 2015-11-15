@@ -70,7 +70,7 @@ def destroyObject(uiObj, tobeDeleteObj):
 def writeXML(tree, newState, fileName, dims):
     app = adsk.core.Application.get()
     design = adsk.fusion.Design.cast(app.activeProduct)
-    # ui = app.userInterface
+    ui = app.userInterface
     
     # Get XML Root node
     root = tree.getroot()
@@ -99,7 +99,7 @@ def writeXML(tree, newState, fileName, dims):
         # Get All parameters in design
         allParams = design.allParameters
         for param in allParams:
-    
+            ui.messageBox(str(param.name) + "  " + str(param.value))
             # Record feature suppression state
             if param is not None:               
                 SubElement( state, 'parameter', value=str(param.value), name=param.name)
@@ -138,7 +138,7 @@ def openXML(tree, state):
     for param in allParams:
 
         # Apply Saved dimension info
-        if param is not None:               
+        if param is not None:                       
             test = root.find("state[@name='%s']/parameter[@name='%s']" % (state, feature.name))
             if test is not None:
                 param.value = float(test.get('value'))
