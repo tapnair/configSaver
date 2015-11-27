@@ -111,34 +111,44 @@ def updateParams(inputs):
                             param.name + '\n' +
                             inputExpresion)
                             
-def writeXML(tree, newState, fileName, dims):
+def writeXML(tree, newState, fileName, dims, suppress):
     
     app = adsk.core.Application.get()
     design = adsk.fusion.Design.cast(app.activeProduct)
-    ui = app.userInterface
     
     # Get XML Root node
     root = tree.getroot()
     
+    if dims:
+        dimOption = 'true'
+    else:
+        dimOption = 'false'
+    
+    if suppress:
+        suppressOption = 'true'
+    else:
+        suppressOption = 'false'
+    
     # Create a new State in the file
-    state = SubElement( root, 'state', name=newState )
+    state = SubElement( root, 'state', name=newState, dimOption=dimOption, suppressOption=suppressOption )
       
-    # Get All components in design
-    allComponents = design.allComponents
-    for comp in allComponents:
-        
-        # Get All features inside the component
-        allFeatures = comp.features
-        for feature in allFeatures:
+    if suppress:
+        # Get All components in design
+        allComponents = design.allComponents
+        for comp in allComponents:
             
-            # Record feature suppression state
-            if feature is not None:               
-                if feature.timelineObject.isSuppressed:                               
-                    # ui.messageBox(str(feature.name) + " Is Suppressed")
-                    SubElement( state, 'feature', component=comp.name, name=feature.name, suppress = 'suppressed')
-                else:
-                    # ui.messageBox(str(feature.name) + " Is Unsuppressed")
-                    SubElement( state, 'feature', component=comp.name, name=feature.name, suppress = 'unSuppressed')
+            # Get All features inside the component
+            allFeatures = comp.features
+            for feature in allFeatures:
+                
+                # Record feature suppression state
+                if feature is not None:               
+                    if feature.timelineObject.isSuppressed:                               
+                        # ui.messageBox(str(feature.name) + " Is Suppressed")
+                        SubElement( state, 'feature', component=comp.name, name=feature.name, suppress = 'suppressed')
+                    else:
+                        # ui.messageBox(str(feature.name) + " Is Unsuppressed")
+                        SubElement( state, 'feature', component=comp.name, name=feature.name, suppress = 'unSuppressed')
     
     if dims:
         # Get All parameters in design
@@ -154,7 +164,7 @@ def writeXML(tree, newState, fileName, dims):
 def openXML(tree, state):
     app = adsk.core.Application.get()
     design = adsk.fusion.Design.cast(app.activeProduct)
-    # ui = app.userInterface
+    ui = app.userInterface
 
     # Get XML Root node
     root = tree.getroot()
@@ -177,7 +187,10 @@ def openXML(tree, state):
                     else:
                         # ui.messageBox(str(feature.name) + " Is Unsuppressed")
                         feature.timelineObject.isSuppressed = False
+    
 
+#    iterateObjects(root, state, design.timeline)
+    
     # Get All parameters in design
     allParams = design.allParameters
     for param in allParams:
@@ -188,6 +201,39 @@ def openXML(tree, state):
             if test is not None:
                 param.value = float(test.get('value'))
 
+# Was going to use for iterating over timeline instead of component features.
+def iterateObjects(root, state, timelineObjects):
+    app = adsk.core.Application.get()
+    design = adsk.fusion.Design.cast(app.activeProduct)
+    ui = app.userInterface
+    
+    for timelineObject in timelineObjects:
+        if timelineObject.isGroup:
+            iterateObjects(root, state, timelineObject)
+        try:
+            entity = timelineObject.entity
+#            ui.messageBox(str(timelineObject.entity))
+        except:
+            entity = None
+#            ui.messageBox('No entity')     
+        
+        if entity is not None:
+            if 'Construct' in timelineObject.entity.objectType:
+                compName = timelineObject.entity.parent.name
+            elif 'Snapshot' in timelineObject.entity.objectType:
+                compName = ''
+            else:
+                compName = timelineObject.entity.parentComponent.name
+            test = root.find("state[@name='%s']/feature[@name='%s'][@component='%s']" % (state, timelineObject.entity.name, compName))
+            if test is not None:
+                if test.get('suppress') == 'suppressed':
+                    # ui.messageBox(str(feature.name) + " Is Suppressed")
+                    timelineObject.isSuppressed = True
+                else:
+                    # ui.messageBox(str(feature.name) + " Is Unsuppressed")
+                    timelineObject.isSuppressed = False
+            adsk.doEvents()    
+                    
 def getFileName():
     try:
         app = adsk.core.Application.get()
@@ -244,18 +290,22 @@ def run(context):
                     command = args.firingEvent.sender
                     inputs = command.commandInputs
                     
-                    if inputs.itemById('save').value:
+                    if inputs.itemById('suppress').value:
                         inputs.itemById('currentState').isVisible = False
                         inputs.itemById('newName').isEnabled = True
                         inputs.itemById('newName').isVisible = True
-                        inputs.itemById('dims').isEnabled = True
+                    
+                    elif inputs.itemById('dims').value:
+                        inputs.itemById('currentState').isVisible = False
+                        inputs.itemById('newName').isEnabled = True
+                        inputs.itemById('newName').isVisible = True
+                    
                     else:
                         inputs.itemById('currentState').isVisible = True
                         inputs.itemById('newName').isVisible = False
                         inputs.itemById('dims').isVisible = True
-                        inputs.itemById('dims').isEnabled = False
                         inputs.itemById('newName').isEnabled = False
-                        inputs.itemById('save').isVisible = True
+                        inputs.itemById('suppress').isVisible = True
 
                 except:
                     if ui:
@@ -273,7 +323,7 @@ def run(context):
                     inputs = command.commandInputs
                     state = inputs.itemById('currentState').selectedItem.name
                     
-                    if state != 'Current' and not inputs.itemById('save').value:
+                    if state != 'Current' and not (inputs.itemById('suppress').value | inputs.itemById('dims').value):
                         fileName = getFileName()                    
                         tree = ElementTree.parse(fileName)
                         openXML(tree, state)
@@ -315,9 +365,9 @@ def run(context):
                     for state in root.findall('state'):
                         dropDownItems.add(state.get('name'), False,)
                         
-                    inputs.addBoolValueInput('save', 'Save current suppression condition?', True)
-                    inputs.addStringValueInput('newName', 'New Config Name:', 'New Config')        
-                    inputs.addBoolValueInput('dims', 'Save DImension Information also?', True)
+                    inputs.addBoolValueInput('suppress', 'Save current suppression condition?', True)
+                    inputs.addBoolValueInput('dims', 'Save Dimension Information?', True)
+                    inputs.addStringValueInput('newName', 'New Config Name:', 'New Config')   
                     inputs.itemById('newName').isEnabled = False
                     inputs.itemById('newName').isVisible = False
                         
@@ -333,13 +383,14 @@ def run(context):
                 try:  
                     command = args.firingEvent.sender
                     inputs = command.commandInputs
-                    state = inputs.itemById('currentState').selectedItem.name
+                    
                     fileName = getFileName()                    
                     tree = ElementTree.parse(fileName)
                     
-                    if inputs.itemById('save').value:
-                        writeXML(tree, inputs.itemById('newName').value, fileName, inputs.itemById('dims').value)
+                    if (inputs.itemById('dims').value | inputs.itemById('suppress').value):
+                        writeXML(tree, inputs.itemById('newName').value, fileName, inputs.itemById('dims').value, inputs.itemById('suppress').value)
                     else:
+                        state = inputs.itemById('currentState').selectedItem.name
                         openXML(tree, state)  
                     
                     
@@ -464,11 +515,11 @@ def run(context):
                     tree = ElementTree.parse(fileName)
                     
                     updateParams(inputs)
-
+    
                     state = modifyState
                     
                     updateXML(tree, fileName, state)
-                    writeXML(tree, state, fileName, True)
+                    writeXML(tree, state, fileName, inputs.itemById('dims').value, inputs.itemById('suppress').value)
                 
                 except:
                     if ui:
@@ -489,6 +540,25 @@ def run(context):
                         ui.messageBox('command executed failed:\n{}'
                         .format(traceback.format_exc())) 
         
+        class MC2_InputChangedHandler(adsk.core.InputChangedEventHandler):
+            def __init__(self):
+                super().__init__()
+            def notify(self, args):
+                try:
+                    command = args.firingEvent.sender
+                    inputs = command.commandInputs
+                    app = adsk.core.Application.get()
+                    ui  = app.userInterface
+                    
+                    for input_ in inputs:
+                        if input_.objectType == 'adsk::core::StringValueCommandInput':
+#                            ui.messageBox(str(inputs.itemById('dims').value))
+                            input_.isEnabled = inputs.itemById('dims').value
+
+                except:
+                    if ui:
+                        ui.messageBox('Input changed event failed: {}'.format(traceback.format_exc()))
+        
         class MC2_CreatedHandler(adsk.core.CommandCreatedEventHandler):
             def __init__(self):
                 super().__init__() 
@@ -501,10 +571,13 @@ def run(context):
                     cmd.execute.add(on_MC2_Execute)
                     on_MC2_Preview = MC2_executePreviewHandler()
                     cmd.executePreview.add(on_MC2_Preview)
+                    on_MC2_Changed = MC2_InputChangedHandler()
+                    cmd.inputChanged.add(on_MC2_Changed)
                     
                     # keep the handler referenced beyond this function
                     handlers.append(on_MC2_Execute)  
                     handlers.append(on_MC2_Preview)
+                    handlers.append(on_MC2_Changed)
                     inputs = cmd.commandInputs
                     
                     state = modifyState
@@ -518,12 +591,14 @@ def run(context):
                     config = root.find("state[@name='%s']" % (state))
                     
                     if config is not None:
-                        
+                        inputs.addBoolValueInput('suppress', 'Save current suppression condition?', True, '', config.get('suppressOption') == 'true')
+                        dimInput = inputs.addBoolValueInput('dims', 'Save Dimension Information?', True, '', config.get('dimOption') == 'true')
                         design = app.activeProduct
                         for param in design.userParameters: 
 
                             inp = inputs.addStringValueInput(param.name, param.name, param.expression)
                             inp.isVisible = True
+                            inp.isEnabled = dimInput.value
  
 #                        Possible future add ability to edit Suppression state graphically                       
 #                        for feature in config.iter('feature'):                  
