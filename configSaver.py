@@ -74,36 +74,45 @@ def destroyObject(uiObj, tobeDeleteObj):
         else:
             uiObj.messageBox('tobeDeleteObj is not a valid object')
                     
-def updateXML(state, features, params):
+def updateXML(tree, fileName, state):
     
-    fileName = getFileName()                    
-    tree = ElementTree.parse(fileName)
     root = tree.getroot()
     
     config = root.find("state[@name='%s']" % (state))
     
     if config is not None:
-        
-        for param in params: 
-                        
-            # TODO
-            # Write new parameter values
-            test = config.find("parameter[@name='%s']" % (param.name))
-            if test is not None:
-                test.value = param.value
-        
-        for feature in features:
-            
-            # TODO
-            # Write new feature states
-            test = config.find("feature[@name='%s'][@component='%s']" % (feature.name, feature.comp))
-            if test is not None:
-                test.suppress = 'unSuppressed'
+        root.remove(config)
     
     tree.write(fileName)
     
+def updateParams(inputs):
+    
+    # Get Fusion Objects
+    app = adsk.core.Application.get()
+    ui  = app.userInterface
+    design = app.activeProduct
+    unitsMgr = design.unitsManager
+    
+    if inputs.count < 1:
+        ui.messageBox('No User Parameters in the model')
+        return          
+    
+    # Set all parameter values based on the input form                            
+    for param in design.userParameters:
+        inputExpresion = inputs.itemById(param.name).value
+        
+        # Use Fusion Units Manager to validate user expresion                        
+        if unitsMgr.isValidExpression(inputExpresion, unitsMgr.defaultLengthUnits):
+            
+            # Set parameter value from input form                         
+            param.expression = inputExpresion
+        else:
+            ui.messageBox("The following expresion was invalid: \n" +
+                            param.name + '\n' +
+                            inputExpresion)
                             
 def writeXML(tree, newState, fileName, dims):
+    
     app = adsk.core.Application.get()
     design = adsk.fusion.Design.cast(app.activeProduct)
     ui = app.userInterface
@@ -135,7 +144,7 @@ def writeXML(tree, newState, fileName, dims):
         # Get All parameters in design
         userParams = design.userParameters
         for param in userParams:
-            ui.messageBox(str(param.name) + "  " + str(param.value))
+#            ui.messageBox(str(param.name) + "  " + str(param.value))
             # Record feature suppression state
             if param is not None:               
                 SubElement( state, 'parameter', value=str(param.value), name=param.name)
@@ -374,6 +383,11 @@ def run(context):
                     MC1_Command = args.firingEvent.sender
                     MC1_inputs = MC1_Command.commandInputs
                     modifyState = MC1_inputs.itemById('currentState').selectedItem.name
+
+                    fileName = getFileName()                    
+                    tree = ElementTree.parse(fileName)
+
+                    openXML(tree, modifyState)  
                     
                     # Execute the next command.
                     cmdDef = ui.commandDefinitions.itemById(MC2_CmdId)
@@ -388,28 +402,15 @@ def run(context):
                 super().__init__()
             def notify(self, args):
                 try:
-                    pass
-                except:
-                    if ui:
-                        ui.messageBox('command executed failed:\n{}'
-                        .format(traceback.format_exc())) 
-                        
-        class MC1_InputChangedHandler(adsk.core.InputChangedEventHandler):
-            def __init__(self):
-                super().__init__()
-            def notify(self, args):
-                try:
-                    
                     command = args.firingEvent.sender
                     inputs = command.commandInputs
-                    
-                    fileName = getFileName()                    
-                    tree = ElementTree.parse(fileName)
-                    root = tree.getroot()
-                    
                     state = inputs.itemById('currentState').selectedItem.name
                     
-                    
+                    if state != 'Current':
+                        fileName = getFileName()                    
+                        tree = ElementTree.parse(fileName)
+                        openXML(tree, state)
+                        
                 except:
                     if ui:
                         ui.messageBox('command executed failed:\n{}'
@@ -425,15 +426,12 @@ def run(context):
                     cmd = args.command
                     on_MC1_Execute = MC1_ExecuteHandler()
                     cmd.execute.add(on_MC1_Execute)
-                    on_MC1_Change = MC1_InputChangedHandler()
-                    cmd.inputChanged.add(on_MC1_Change)
-#                    onUpdate = MC1_executePreviewHandler()
-#                    cmd.executePreview.add(onUpdate)
+                    on_MC1_Update = MC1_executePreviewHandler()
+                    cmd.executePreview.add(on_MC1_Update)
                     
                     # keep the handler referenced beyond this function
                     handlers.append(on_MC1_Execute)  
-                    handlers.append(on_MC1_Change)
-#                    handlers.append(onUpdate)
+                    handlers.append(on_MC1_Update)
                     
                     fileName = getFileName()                    
                     tree = ElementTree.parse(fileName)
@@ -459,28 +457,18 @@ def run(context):
                 super().__init__()
             def notify(self, args):
                 try:
-                    command = args.firingEvent.sender
-                    inputs = command.commandInputs
+
+                    cmd = args.firingEvent.sender
+                    inputs = cmd.commandInputs
+                    fileName = getFileName()                    
+                    tree = ElementTree.parse(fileName)
                     
-                    features = []
-                    params = []
-                    for input_ in inputs:
-                    
-#                        if input_.objectType == 'BoolValueCommandInput':
-#                        
-#                            features.add({
-#                             'name': 'Jean-Luc Picard',
-#                             'component': 'captain'
-#                             })
-#                        elif input_.objectType == 'StringValueCommandInput':
-#                        
-#                            features.add({
-#                             'name': input_.name,
-#                             'value': input_.value
-#                             })
+                    updateParams(inputs)
+
                     state = modifyState
                     
-                    updateXML(state, features, params)
+                    updateXML(tree, fileName, state)
+                    writeXML(tree, state, fileName, True)
                 
                 except:
                     if ui:
@@ -492,19 +480,10 @@ def run(context):
                 super().__init__()
             def notify(self, args):
                 try:
-                    pass
-                except:
-                    if ui:
-                        ui.messageBox('command executed failed:\n{}'
-                        .format(traceback.format_exc())) 
-                        
-        class MC2_InputChangedHandler(adsk.core.InputChangedEventHandler):
-            def __init__(self):
-                super().__init__()
-            def notify(self, args):
-                try:
+                    cmd = args.firingEvent.sender
+                    inputs = cmd.commandInputs
+                    updateParams(inputs)
                     
-                    pass
                 except:
                     if ui:
                         ui.messageBox('command executed failed:\n{}'
@@ -515,40 +494,39 @@ def run(context):
                 super().__init__() 
             def notify(self, args):
                 try:
+                    app = adsk.core.Application.get()
+
                     cmd = args.command
                     on_MC2_Execute = MC2_ExecuteHandler()
                     cmd.execute.add(on_MC2_Execute)
-                    on_MC2_Change = MC2_InputChangedHandler()
-                    cmd.inputChanged.add(on_MC2_Change)
-#                    on_MC2_Update = MC2_executePreviewHandler()
-#                    cmd.executePreview.add(on_MC2_Update)
+                    on_MC2_Preview = MC2_executePreviewHandler()
+                    cmd.executePreview.add(on_MC2_Preview)
                     
                     # keep the handler referenced beyond this function
                     handlers.append(on_MC2_Execute)  
-                    handlers.append(on_MC2_Change)
-#                    handlers.append(on_MC2_Update)
+                    handlers.append(on_MC2_Preview)
                     inputs = cmd.commandInputs
                     
                     state = modifyState
+                    
+                    inputs.addTextBoxCommandInput('text', 'Configuration being Modified:', state, 1, True)                    
                     
                     fileName = getFileName()                    
                     tree = ElementTree.parse(fileName)
                     root = tree.getroot()
                     
                     config = root.find("state[@name='%s']" % (state))
+                    
                     if config is not None:
                         
-                        for param in config.iter('parameter'): 
-                                        
-                            valueIn = str(param.get('value'))
-                            value = adsk.core.ValueInput.createByString(valueIn)
-                            name = str(param.get('name'))
+                        design = app.activeProduct
+                        for param in design.userParameters: 
 
-                            inp = inputs.addStringValueInput(name, name, value)
+                            inp = inputs.addStringValueInput(param.name, param.name, param.expression)
                             inp.isVisible = True
-                        
-#                        for feature in config.iter('feature'):
-#                            
+ 
+#                        Possible future add ability to edit Suppression state graphically                       
+#                        for feature in config.iter('feature'):                  
 #                            if str(feature.get('suppress')) == 'suppressed':
 #                                text = str(feature.get('component'))
 #                                text += " / "
@@ -564,8 +542,6 @@ def run(context):
         # Get the UserInterface object and the CommandDefinitions collection.
         cmdDefs = ui.commandDefinitions
 
-        #global showAllBodiesCmdId
-        #otherCmdDefs = [showAllCompsCmdId, showHiddenBodiesCmdId, showHiddenCompsCmdId]
         # add a command button on Quick Access Toolbar
         toolbars_ = ui.toolbars
         navBar = toolbars_.itemById('NavToolbar')
