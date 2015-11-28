@@ -28,8 +28,10 @@ CS_DC_CmdId = 'CS_DC_CmdId2'
 USA_CmdId = 'CS_USA_CmdId2'
 MC1_CmdId = 'MC1_CmdId'
 MC2_CmdId = 'MC2_CmdId'
+EP_CmdId = 'EP_CmdId'
+SWC_CmdId = 'SWC_CmdId'
 
-cmdIds = [CS_CmdId, CS_DC_CmdId, USA_CmdId, MC1_CmdId, MC2_CmdId]
+cmdIds = [CS_CmdId, CS_DC_CmdId, USA_CmdId, MC1_CmdId, MC2_CmdId, EP_CmdId, SWC_CmdId]
 
 def commandDefinitionById(id):
     app = adsk.core.Application.get()
@@ -281,7 +283,158 @@ def run(context):
     try:
         app = adsk.core.Application.get()
         ui  = app.userInterface
+        # Handle the input changed event.        
+        class EP_executePreviewHandler(adsk.core.CommandEventHandler):
+            def __init__(self):
+                super().__init__()
+            def notify(self, args):
+                app = adsk.core.Application.get()
+                ui  = app.userInterface
+                try:
+                    cmd = args.firingEvent.sender
+                    inputs = cmd.commandInputs
+                    updateParams(inputs)
+                    
+                except:
+                    if ui:
+                        ui.messageBox('command executed failed:\n{}'
+                        .format(traceback.format_exc()))
+                        
+        # Handle the execute event.
+        class EP_CommandExecuteHandler(adsk.core.CommandEventHandler):
+            def __init__(self):
+                super().__init__()
+            def notify(self, args):
+                try:  
+                    # Get values from input form
+                    cmd = args.firingEvent.sender
+                    inputs = cmd.commandInputs
+                    updateParams(inputs)
+                                        
+                except:
+                    if ui:
+                        ui.messageBox('command executed failed:\n{}'
+                        .format(traceback.format_exc()))
+        
+        # Handle the execute event.
+        class EP_CommandCreatedHandler(adsk.core.CommandCreatedEventHandler):
+            def __init__(self):
+                super().__init__() 
+            def notify(self, args):
+                try:
+                    # Setup Handlers for update and execute
+                    cmd = args.command
+                    onExecute = EP_CommandExecuteHandler()
+                    cmd.execute.add(onExecute)
+                    onUpdate = EP_executePreviewHandler()
+                    cmd.executePreview.add(onUpdate)
+                    
+                    # keep the handler referenced beyond this function
+                    handlers.append(onExecute)
+                    handlers.append(onUpdate)
+                    
+                    # Define UI Elements
+                    commandInputs_ = cmd.commandInputs                
+                  
+                    # Add all parameters to the input form
+                    design = app.activeProduct
+                    for param in design.userParameters:                                         
+                        #if param.name[0] != '_':
+                        commandInputs_.addStringValueInput(param.name, param.name, param.expression)
+                except:
+                    if ui:
+                        ui.messageBox('Panel command created failed:\n{}'
+                        .format(traceback.format_exc()))
+                                       
+        class SWC_InputChangedHandler(adsk.core.InputChangedEventHandler):
+            def __init__(self):
+                super().__init__()
+            def notify(self, args):
+                try:
+                    command = args.firingEvent.sender
+                    inputs = command.commandInputs
 
+                except:
+                    if ui:
+                        ui.messageBox('Input changed event failed: {}').format(traceback.format_exc())
+        
+        # Handle the input changed event.        
+        class SWC_executePreviewHandler(adsk.core.CommandEventHandler):
+            def __init__(self):
+                super().__init__()
+            def notify(self, args):
+                app = adsk.core.Application.get()
+                ui  = app.userInterface
+                try:
+                    command = args.firingEvent.sender
+                    inputs = command.commandInputs
+                    state = inputs.itemById('currentState').selectedItem.name
+                    
+                    if state != 'Current':
+                        fileName = getFileName()                    
+                        tree = ElementTree.parse(fileName)
+                        openXML(tree, state)
+                    
+                except:
+                    if ui:
+                        ui.messageBox('command executed failed:\n{}'
+                        .format(traceback.format_exc()))       
+                        
+        class SWC_CreatedHandler(adsk.core.CommandCreatedEventHandler):
+            def __init__(self):
+                super().__init__() 
+            def notify(self, args):
+                try:
+                    cmd = args.command
+                    onExecute = SWC_ExecuteHandler()
+                    cmd.execute.add(onExecute)
+                    onChange = SWC_InputChangedHandler()
+                    cmd.inputChanged.add(onChange)
+                    onUpdate = SWC_executePreviewHandler()
+                    cmd.executePreview.add(onUpdate)
+                    
+                    # keep the handler referenced beyond this function
+                    handlers.append(onExecute)  
+                    handlers.append(onChange)
+                    handlers.append(onUpdate)
+                    
+                    fileName = getFileName()                    
+                    tree = ElementTree.parse(fileName)
+                    root = tree.getroot()
+                    
+                    inputs = cmd.commandInputs
+                    
+                    dropDown = inputs.addDropDownCommandInput('currentState', 'Select Saved Config:', adsk.core.DropDownStyles.TextListDropDownStyle)
+                    dropDownItems = dropDown.listItems
+                    
+                    dropDownItems.add('Current', True)
+                    
+                    for state in root.findall('state'):
+                        dropDownItems.add(state.get('name'), False,)
+                        
+                except:
+                    if ui:
+                        ui.messageBox('Panel command created failed:\n{}'
+                        .format(traceback.format_exc()))     
+
+        class SWC_ExecuteHandler(adsk.core.CommandEventHandler):
+            def __init__(self):
+                super().__init__()
+            def notify(self, args):
+                try:  
+                    command = args.firingEvent.sender
+                    inputs = command.commandInputs
+                    
+                    fileName = getFileName()                    
+                    tree = ElementTree.parse(fileName)
+
+                    state = inputs.itemById('currentState').selectedItem.name
+                    openXML(tree, state)  
+                    
+                except:
+                    if ui:
+                        ui.messageBox('command executed failed:\n{}'
+                        .format(traceback.format_exc()))  
         class CS_InputChangedHandler(adsk.core.InputChangedEventHandler):
             def __init__(self):
                 super().__init__()
@@ -289,23 +442,6 @@ def run(context):
                 try:
                     command = args.firingEvent.sender
                     inputs = command.commandInputs
-                    
-                    if inputs.itemById('suppress').value:
-                        inputs.itemById('currentState').isVisible = False
-                        inputs.itemById('newName').isEnabled = True
-                        inputs.itemById('newName').isVisible = True
-                    
-                    elif inputs.itemById('dims').value:
-                        inputs.itemById('currentState').isVisible = False
-                        inputs.itemById('newName').isEnabled = True
-                        inputs.itemById('newName').isVisible = True
-                    
-                    else:
-                        inputs.itemById('currentState').isVisible = True
-                        inputs.itemById('newName').isVisible = False
-                        inputs.itemById('dims').isVisible = True
-                        inputs.itemById('newName').isEnabled = False
-                        inputs.itemById('suppress').isVisible = True
 
                 except:
                     if ui:
@@ -321,12 +457,6 @@ def run(context):
                 try:
                     command = args.firingEvent.sender
                     inputs = command.commandInputs
-                    state = inputs.itemById('currentState').selectedItem.name
-                    
-                    if state != 'Current' and not (inputs.itemById('suppress').value | inputs.itemById('dims').value):
-                        fileName = getFileName()                    
-                        tree = ElementTree.parse(fileName)
-                        openXML(tree, state)
                     
                 except:
                     if ui:
@@ -351,25 +481,11 @@ def run(context):
                     handlers.append(onChange)
                     handlers.append(onUpdate)
                     
-                    fileName = getFileName()                    
-                    tree = ElementTree.parse(fileName)
-                    root = tree.getroot()
-                    
                     inputs = cmd.commandInputs
-                    
-                    dropDown = inputs.addDropDownCommandInput('currentState', 'Select Saved Config:', adsk.core.DropDownStyles.TextListDropDownStyle)
-                    dropDownItems = dropDown.listItems
-                    
-                    dropDownItems.add('Current', True)
-                    
-                    for state in root.findall('state'):
-                        dropDownItems.add(state.get('name'), False,)
                         
-                    inputs.addBoolValueInput('suppress', 'Save current suppression condition?', True)
-                    inputs.addBoolValueInput('dims', 'Save Dimension Information?', True)
+                    inputs.addBoolValueInput('suppress', 'Save current suppression condition?', True, '', True)
+                    inputs.addBoolValueInput('dims', 'Save Dimension Information?', True, '', True)
                     inputs.addStringValueInput('newName', 'New Config Name:', 'New Config')   
-                    inputs.itemById('newName').isEnabled = False
-                    inputs.itemById('newName').isVisible = False
                         
                 except:
                     if ui:
@@ -386,18 +502,14 @@ def run(context):
                     
                     fileName = getFileName()                    
                     tree = ElementTree.parse(fileName)
-                    
-                    if (inputs.itemById('dims').value | inputs.itemById('suppress').value):
-                        writeXML(tree, inputs.itemById('newName').value, fileName, inputs.itemById('dims').value, inputs.itemById('suppress').value)
-                    else:
-                        state = inputs.itemById('currentState').selectedItem.name
-                        openXML(tree, state)  
-                    
-                    
+
+                    writeXML(tree, inputs.itemById('newName').value, fileName, inputs.itemById('dims').value, inputs.itemById('suppress').value)
+
                 except:
                     if ui:
                         ui.messageBox('command executed failed:\n{}'
-                        .format(traceback.format_exc()))   
+                        .format(traceback.format_exc()))  
+                        
         class USA_CreatedHandler(adsk.core.CommandCreatedEventHandler):
             def __init__(self):
                 super().__init__() 
@@ -435,14 +547,15 @@ def run(context):
                     MC1_inputs = MC1_Command.commandInputs
                     modifyState = MC1_inputs.itemById('currentState').selectedItem.name
 
-                    fileName = getFileName()                    
-                    tree = ElementTree.parse(fileName)
+                    if modifyState != 'Current':
+                        fileName = getFileName()                    
+                        tree = ElementTree.parse(fileName)
 
-                    openXML(tree, modifyState)  
-                    
-                    # Execute the next command.
-                    cmdDef = ui.commandDefinitions.itemById(MC2_CmdId)
-                    cmdDef.execute()
+                        openXML(tree, modifyState)  
+                        
+                        # Execute the next command.
+                        cmdDef = ui.commandDefinitions.itemById(MC2_CmdId)
+                        cmdDef.execute()
                 except:
                     if ui:
                         ui.messageBox('command executed failed:\n{}'
@@ -629,7 +742,7 @@ def run(context):
             CS_cmdDef = cmdDefs.itemById(CS_CmdId)
             if not CS_cmdDef:
                 # commandDefinitionNAV = cmdDefs.addSplitButton(showAllBodiesCmdId, otherCmdDefs, True)
-                CS_cmdDef = cmdDefs.addButtonDefinition(CS_CmdId, 'Config Saver', 'Save Suppresion State of Features',commandResources)
+                CS_cmdDef = cmdDefs.addButtonDefinition(CS_CmdId, 'Save Configuration', 'Save Suppresion State of Features',commandResources)
             onCommandCreated = CS_CreatedHandler()
             CS_cmdDef.commandCreated.add(onCommandCreated)
             # keep the handler referenced beyond this function
@@ -637,7 +750,19 @@ def run(context):
             CS_Control = dropControl.controls.addCommand(CS_cmdDef)
             CS_Control.isVisible = True
         
-        
+        SWC_Control = toolbarControlsNAV.itemById(SWC_CmdId)
+        if not SWC_Control:
+            SWC_cmdDef = cmdDefs.itemById(SWC_CmdId)
+            if not SWC_cmdDef:
+                # commandDefinitionNAV = cmdDefs.addSplitButton(showAllBodiesCmdId, otherCmdDefs, True)
+                SWC_cmdDef = cmdDefs.addButtonDefinition(SWC_CmdId, 'Switch Configuration', 'Switch to a different Config',commandResources)
+            onCommandCreated = SWC_CreatedHandler()
+            SWC_cmdDef.commandCreated.add(onCommandCreated)
+            # keep the handler referenced beyond this function
+            handlers.append(onCommandCreated)
+            SWC_Control = dropControl.controls.addCommand(SWC_cmdDef)
+            SWC_Control.isVisible = True
+            
         USA_Control = toolbarControlsNAV.itemById(USA_CmdId)
         if not USA_Control:
             USA_cmdDef = cmdDefs.itemById(USA_CmdId)
@@ -650,6 +775,19 @@ def run(context):
             handlers.append(onCommandCreated)
             USA_Control = dropControl.controls.addCommand(USA_cmdDef)
             USA_Control.isVisible = True
+        
+        EP_Control = toolbarControlsNAV.itemById(EP_CmdId)
+        if not EP_Control:
+            EP_cmdDef = cmdDefs.itemById(EP_CmdId)
+            if not EP_cmdDef:
+                # commandDefinitionNAV = cmdDefs.addSplitButton(showAllBodiesCmdId, otherCmdDefs, True)
+                EP_cmdDef = cmdDefs.addButtonDefinition(EP_CmdId, 'Edit Parameters', 'A simple dialog to edit current user parameters',commandResources)
+            onCommandCreated = EP_CommandCreatedHandler()
+            EP_cmdDef.commandCreated.add(onCommandCreated)
+            # keep the handler referenced beyond this function
+            handlers.append(onCommandCreated)
+            EP_Control = dropControl.controls.addCommand(EP_cmdDef)
+            EP_Control.isVisible = True
             
         MC1_Control = toolbarControlsNAV.itemById(MC1_CmdId)
         if not MC1_Control:
